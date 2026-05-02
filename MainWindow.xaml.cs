@@ -19,6 +19,7 @@ namespace CinemaMode
         private NotifyIcon _trayIcon;
         private ContextMenuStrip _trayMenu;
         private bool _isInitializing = true;
+        private DateTime _lastActionTime = DateTime.MinValue;
 
         // P/Invoke for Display Configuration
         [DllImport("user32.dll")]
@@ -125,6 +126,7 @@ namespace CinemaMode
         private const uint SDC_USE_SUPPLIED_CONFIG = 0x00000020;
         private const uint DISPLAYCONFIG_PATH_ACTIVE = 0x00000001;
         private const uint DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE = 1;
+        private const uint DISPLAYCONFIG_MODE_INFO_TYPE_TARGET = 2;
         private const uint DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE = 3;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
@@ -155,6 +157,12 @@ namespace CinemaMode
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_FRAMECHANGED = 0x0020;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT { public int Left, Top, Right, Bottom; }
@@ -355,6 +363,9 @@ namespace CinemaMode
             {
                 if (!_isModeActive) return;
 
+                // Ignore checks for 2 seconds after a screen change to let the OS settle
+                if (DateTime.Now - _lastActionTime < TimeSpan.FromSeconds(2)) return;
+
                 IntPtr foregroundWnd = GetForegroundWindow();
                 if (foregroundWnd == IntPtr.Zero) return;
 
@@ -373,9 +384,10 @@ namespace CinemaMode
                 var screen = Screen.FromHandle(foregroundWnd);
                 if (screen == null) return;
 
-                // Check if foreground window matches screen dimensions (Fullscreen)
-                bool isFullscreen = (rect.Bottom - rect.Top) >= screen.Bounds.Height &&
-                                    (rect.Right - rect.Left) >= screen.Bounds.Width;
+                // Check if foreground window matches screen dimensions (Fullscreen). 
+                // We use a small 10px tolerance for window borders or DPI rounding.
+                bool isFullscreen = (rect.Bottom - rect.Top) >= screen.Bounds.Height - 10 &&
+                                    (rect.Right - rect.Left) >= screen.Bounds.Width - 10;
 
                 if (isFullscreen) DisconnectOthers(foregroundWnd);
                 else RestoreScreens();
@@ -405,7 +417,7 @@ namespace CinemaMode
                 _savedPaths = (DISPLAYCONFIG_PATH_INFO[])pathArray.Clone();
                 _savedModes = (DISPLAYCONFIG_MODE_INFO[])modeArray.Clone();
 
-                List<DISPLAYCONFIG_PATH_INFO> activePaths = new List<DISPLAYCONFIG_PATH_INFO>();
+                List<DISPLAYCONFIG_PATH_INFO> targetPaths = new List<DISPLAYCONFIG_PATH_INFO>();
                 int currentActiveCount = 0;
                 foreach (var p in pathArray) if ((p.flags & DISPLAYCONFIG_PATH_ACTIVE) != 0) currentActiveCount++;
 
@@ -423,49 +435,60 @@ namespace CinemaMode
                     {
                         if (string.Equals(sourceName.viewGdiDeviceName, mi.szDevice, StringComparison.OrdinalIgnoreCase))
                         {
-                            activePaths.Add(pathArray[i]);
+                            targetPaths.Add(pathArray[i]);
                         }
                     }
                 }
 
-                if (activePaths.Count > 0 && activePaths.Count < currentActiveCount)
+                if (targetPaths.Count > 0 && targetPaths.Count < currentActiveCount)
                 {
-                    // IMPORTANT: For a single-monitor setup, the active monitor MUST be at coordinates (0,0).
-                    // We find the source or desktop mode for our target path and force its position to the origin
-                    // to prevent "clipping" or "cutting" on non-primary monitors.
+                    var activePath = targetPaths[0];
+
                     for (int m = 0; m < modeArray.Length; m++)
                     {
-                        if ((modeArray[m].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE ||
-                             modeArray[m].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE) &&
-                            modeArray[m].adapterId.LowPart == activePaths[0].sourceInfo.adapterId.LowPart &&
-                            modeArray[m].adapterId.HighPart == activePaths[0].sourceInfo.adapterId.HighPart &&
-                            modeArray[m].id == activePaths[0].sourceInfo.id)
+                        // Match by adapter ID first
+                        if (modeArray[m].adapterId.LowPart != activePath.sourceInfo.adapterId.LowPart ||
+                            modeArray[m].adapterId.HighPart != activePath.sourceInfo.adapterId.HighPart)
+                            continue;
+
+                        // If this is a Source mode belonging to our monitor, force it to (0,0)
+                        if (modeArray[m].id == activePath.sourceInfo.id)
                         {
                             if (modeArray[m].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE)
                             {
                                 modeArray[m].union.sourceMode.position.x = 0;
                                 modeArray[m].union.sourceMode.position.y = 0;
                             }
-                            else // DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE
+                            else if (modeArray[m].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE)
                             {
-                                int width = modeArray[m].union.desktopImageInfo.DesktopImageRegion.right - modeArray[m].union.desktopImageInfo.DesktopImageRegion.left;
-                                int height = modeArray[m].union.desktopImageInfo.DesktopImageRegion.bottom - modeArray[m].union.desktopImageInfo.DesktopImageRegion.top;
-
-                                modeArray[m].union.desktopImageInfo.DesktopImageRegion.left = 0;
-                                modeArray[m].union.desktopImageInfo.DesktopImageRegion.top = 0;
-                                modeArray[m].union.desktopImageInfo.DesktopImageRegion.right = width;
-                                modeArray[m].union.desktopImageInfo.DesktopImageRegion.bottom = height;
-
-                                modeArray[m].union.desktopImageInfo.PathSourceSize.x = width;
-                                modeArray[m].union.desktopImageInfo.PathSourceSize.y = height;
+                                int w = modeArray[m].union.desktopImageInfo.DesktopImageRegion.right - modeArray[m].union.desktopImageInfo.DesktopImageRegion.left;
+                                int h = modeArray[m].union.desktopImageInfo.DesktopImageRegion.bottom - modeArray[m].union.desktopImageInfo.DesktopImageRegion.top;
+                                modeArray[m].union.desktopImageInfo.DesktopImageRegion = new RECTL { left = 0, top = 0, right = w, bottom = h };
+                                modeArray[m].union.desktopImageInfo.PathSourceSize = new POINTL { x = w, y = h };
                             }
                         }
                     }
 
-                    int result = SetDisplayConfig((uint)activePaths.Count, activePaths.ToArray(), (uint)modeArray.Length, modeArray,
+                    // By passing the original modeArray, we ensure all TargetMode info is available.
+                    // Windows will ignore the modes that aren't used by our single active path.
+                    int result = SetDisplayConfig((uint)targetPaths.Count, targetPaths.ToArray(), (uint)modeArray.Length, modeArray,
                         SDC_APPLY | SDC_ALLOW_CHANGES | SDC_USE_SUPPLIED_CONFIG);
 
-                    if (result == 0) _isDisconnected = true;
+                    System.Diagnostics.Debug.WriteLine($"Cinema Mode: SetDisplayConfig result: {result}");
+
+                    if (result == 0)
+                    {
+                        _isDisconnected = true;
+                        _lastActionTime = DateTime.Now;
+
+                        // Fix the cropping (1/4 video):
+                        // We wait a brief moment for Windows to finish moving the window,
+                        // then we force the window to refresh its layout on the new screen.
+                        System.Threading.Thread.Sleep(500);
+
+                        var newScreen = Screen.FromHandle(activeWindow);
+                        SetWindowPos(activeWindow, IntPtr.Zero, 0, 0, newScreen.Bounds.Width, newScreen.Bounds.Height, SWP_NOZORDER | SWP_FRAMECHANGED);
+                    }
                 }
             }
             finally
@@ -477,10 +500,12 @@ namespace CinemaMode
         private void RestoreScreens()
         {
             if (!_isDisconnected || _savedPaths == null) return;
+            if (DateTime.Now - _lastActionTime < TimeSpan.FromSeconds(1)) return;
 
             SetDisplayConfig((uint)_savedPaths.Length, _savedPaths, (uint)_savedModes.Length, _savedModes, SDC_APPLY | SDC_USE_SUPPLIED_CONFIG | SDC_ALLOW_CHANGES);
 
             _isDisconnected = false;
+            _lastActionTime = DateTime.Now;
             _savedPaths = null;
             _savedModes = null;
         }
