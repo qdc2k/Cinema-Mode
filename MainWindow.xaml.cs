@@ -446,12 +446,12 @@ namespace CinemaMode
 
                     for (int m = 0; m < modeArray.Length; m++)
                     {
-                        // Match by adapter ID first
+                        // Only modify modes belonging to our active monitor's adapter
                         if (modeArray[m].adapterId.LowPart != activePath.sourceInfo.adapterId.LowPart ||
                             modeArray[m].adapterId.HighPart != activePath.sourceInfo.adapterId.HighPart)
                             continue;
 
-                        // If this is a Source mode belonging to our monitor, force it to (0,0)
+                        // If this is the Source/Desktop info for our screen, force it to the primary position (0,0)
                         if (modeArray[m].id == activePath.sourceInfo.id)
                         {
                             if (modeArray[m].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE)
@@ -469,8 +469,7 @@ namespace CinemaMode
                         }
                     }
 
-                    // By passing the original modeArray, we ensure all TargetMode info is available.
-                    // Windows will ignore the modes that aren't used by our single active path.
+                    // Pass the full modeArray so Windows has all the Target/Timing info it needs.
                     int result = SetDisplayConfig((uint)targetPaths.Count, targetPaths.ToArray(), (uint)modeArray.Length, modeArray,
                         SDC_APPLY | SDC_ALLOW_CHANGES | SDC_USE_SUPPLIED_CONFIG);
 
@@ -481,13 +480,24 @@ namespace CinemaMode
                         _isDisconnected = true;
                         _lastActionTime = DateTime.Now;
 
-                        // Fix the cropping (1/4 video):
-                        // We wait a brief moment for Windows to finish moving the window,
-                        // then we force the window to refresh its layout on the new screen.
-                        System.Threading.Thread.Sleep(500);
+                        // After screen config changes, the coordinate system shifts. 
+                        // We wait for the GPU driver to settle, then force the window to the new origin.
+                        System.Threading.Thread.Sleep(1000);
 
-                        var newScreen = Screen.FromHandle(activeWindow);
-                        SetWindowPos(activeWindow, IntPtr.Zero, 0, 0, newScreen.Bounds.Width, newScreen.Bounds.Height, SWP_NOZORDER | SWP_FRAMECHANGED);
+                        MONITORINFOEX freshMi = new MONITORINFOEX();
+                        freshMi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+
+                        // Get the monitor handle for our single remaining screen
+                        IntPtr hMon = MonitorFromWindow(activeWindow, 1); // MONITOR_DEFAULTTOPRIMARY
+                        if (GetMonitorInfo(hMon, ref freshMi))
+                        {
+                            int screenW = freshMi.rcMonitor.Right - freshMi.rcMonitor.Left;
+                            int screenH = freshMi.rcMonitor.Bottom - freshMi.rcMonitor.Top;
+
+                            // SWP_FRAMECHANGED forces the window to recalculate its internal scaling (DPI)
+                            // and rendering viewport, which fixes the 1/4 or 1/6 cropping issue.
+                            SetWindowPos(activeWindow, IntPtr.Zero, 0, 0, screenW, screenH, SWP_NOZORDER | SWP_FRAMECHANGED);
+                        }
                     }
                 }
             }
