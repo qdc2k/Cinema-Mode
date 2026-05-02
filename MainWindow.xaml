@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Cinema Mode"
-        Height="200"
-        Width="320"
+        Height="180"
+        Width="220"
         Background="#1A1A1A"
         Foreground="#FFF"
         WindowStartupLocation="CenterScreen"
@@ -95,6 +95,7 @@
                         Width="30"
                         Height="30"
                         FontSize="18"
+                        ToolTip="Minimize to tray."
                         Click="Minimize_Click"
                         Cursor="Hand"/>
 
@@ -109,6 +110,7 @@
                         Width="30"
                         Height="30"
                         FontSize="16"
+                        ToolTip="Close the program."
                         Click="Close_Click"
                         Cursor="Hand"/>
             </Grid>

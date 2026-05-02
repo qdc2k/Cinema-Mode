@@ -145,6 +145,9 @@ namespace CinemaMode
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT { public int Left, Top, Right, Bottom; }
 
@@ -225,6 +228,9 @@ namespace CinemaMode
             this.Topmost = true;
             this.Activate();
             this.Focus();
+
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            SetForegroundWindow(hwnd);
             this.Topmost = false;
         }
 
