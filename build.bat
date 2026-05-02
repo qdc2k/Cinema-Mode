@@ -2,7 +2,7 @@
 echo Building Cinema Mode...
 echo Cleaning NuGet cache and restoring packages...
 dotnet nuget locals all --clear
-dotnet publish CinemaMode.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false
+dotnet publish CinemaMode.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -p:ApplicationIcon=CinemaMode.ico
 
 copy /y bin\Release\net8.0-windows\win-x64\publish\CinemaMode.exe .
 

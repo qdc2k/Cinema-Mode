@@ -196,7 +196,7 @@ namespace CinemaMode
             {
                 // Try to load the icon file from the same directory as the executable
                 string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-                string iconPath = System.IO.Path.Combine(appDirectory, "cinema.ico");
+                string iconPath = System.IO.Path.Combine(appDirectory, "CinemaMode.ico");
 
                 if (System.IO.File.Exists(iconPath))
                 {
