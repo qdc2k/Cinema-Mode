@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
 using System.Windows.Forms;
+using System.Drawing;
 
 namespace CinemaMode
 {
@@ -12,6 +14,8 @@ namespace CinemaMode
         private DispatcherTimer _timer;
         private bool _isModeActive = false;
         private bool _isDisconnected = false;
+        private NotifyIcon _trayIcon;
+        private ContextMenuStrip _trayMenu;
 
         // P/Invoke for Display Configuration
         [DllImport("user32.dll")]
@@ -61,18 +65,18 @@ namespace CinemaMode
         private struct DISPLAYCONFIG_PATH_SOURCE_INFO { public LUID adapterId; public uint id; public uint status; }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct DISPLAYCONFIG_PATH_TARGET_INFO 
-        { 
-            public LUID adapterId; 
-            public uint id; 
-            public uint status; 
-            public uint outputTechnology; 
-            public uint rotation; 
-            public uint scaling; 
-            public DISPLAYCONFIG_RATIONAL refreshRate; 
-            public uint scanLineOrdering; 
+        private struct DISPLAYCONFIG_PATH_TARGET_INFO
+        {
+            public LUID adapterId;
+            public uint id;
+            public uint status;
+            public uint outputTechnology;
+            public uint rotation;
+            public uint scaling;
+            public DISPLAYCONFIG_RATIONAL refreshRate;
+            public uint scanLineOrdering;
             public uint targetAvailable; // Win32 BOOL is 4 bytes, C# bool is 1. Using uint fixes heap corruption.
-            public uint statusFlags; 
+            public uint statusFlags;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -151,12 +155,122 @@ namespace CinemaMode
             _timer.Tick += CheckFullscreen;
             _timer.Start();
             this.MouseLeftButtonDown += (s, e) => DragMove();
+
+            // Setup tray icon
+            SetupTrayIcon();
         }
 
-        private void ModeToggle_Checked(object sender, RoutedEventArgs e) => _isModeActive = true;
-        private void ModeToggle_Unchecked(object sender, RoutedEventArgs e) { _isModeActive = false; RestoreScreens(); }
-        
-        private void Close_Click(object sender, RoutedEventArgs e) { RestoreScreens(); System.Windows.Application.Current.Shutdown(); }
+        private void SetupTrayIcon()
+        {
+            // Create context menu for tray icon
+            _trayMenu = new ContextMenuStrip();
+
+            var showItem = new ToolStripMenuItem("Show", null, (s, e) => RestoreWindow());
+            var exitItem = new ToolStripMenuItem("Exit", null, (s, e) => ExitApplication());
+
+            _trayMenu.Items.AddRange(new ToolStripItem[] { showItem, exitItem });
+
+            // Create tray icon
+            _trayIcon = new NotifyIcon();
+            _trayIcon.Icon = GetTrayIcon();
+            _trayIcon.Visible = true;
+            _trayIcon.ContextMenuStrip = _trayMenu;
+            _trayIcon.MouseClick += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    if (this.Visibility == Visibility.Visible && this.WindowState == WindowState.Normal)
+                        this.WindowState = WindowState.Minimized;
+                    else
+                        RestoreWindow();
+                }
+            };
+        }
+
+        private System.Drawing.Icon GetTrayIcon()
+        {
+            try
+            {
+                // Try to load the icon file from the same directory as the executable
+                string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+                string iconPath = System.IO.Path.Combine(appDirectory, "cinema.ico");
+
+                if (System.IO.File.Exists(iconPath))
+                {
+                    return new System.Drawing.Icon(iconPath);
+                }
+            }
+            catch { }
+
+            // Fallback: Create a simple icon if file not found
+            Bitmap bitmap = new Bitmap(16, 16);
+            using (Graphics g = Graphics.FromImage(bitmap))
+            {
+                g.Clear(System.Drawing.Color.Transparent);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using (Brush brush = new SolidBrush(_isModeActive ? System.Drawing.Color.Green : System.Drawing.Color.Red))
+                {
+                    g.FillEllipse(brush, 2, 2, 12, 12);
+                }
+            }
+            IntPtr iconHandle = bitmap.GetHicon();
+            return System.Drawing.Icon.FromHandle(iconHandle);
+        }
+
+        private void RestoreWindow()
+        {
+            this.Visibility = Visibility.Visible;
+            this.WindowState = WindowState.Normal;
+            this.ShowInTaskbar = true;
+            this.Topmost = true;
+            this.Activate();
+            this.Focus();
+            this.Topmost = false;
+        }
+
+        private void ExitApplication()
+        {
+            RestoreScreens();
+            _trayIcon?.Dispose();
+            System.Windows.Application.Current.Shutdown();
+        }
+
+        private void Window_StateChanged(object sender, EventArgs e)
+        {
+            if (this.WindowState == WindowState.Minimized)
+            {
+                this.Visibility = Visibility.Hidden;
+                this.ShowInTaskbar = false;
+            }
+        }
+
+        private void Minimize_Click(object sender, RoutedEventArgs e)
+        {
+            this.WindowState = WindowState.Minimized;
+        }
+
+        private void ModeToggle_Checked(object sender, RoutedEventArgs e)
+        {
+            _isModeActive = true;
+            UpdateTrayIcon();
+        }
+
+        private void ModeToggle_Unchecked(object sender, RoutedEventArgs e)
+        {
+            _isModeActive = false;
+            RestoreScreens();
+            UpdateTrayIcon();
+        }
+
+        private void UpdateTrayIcon()
+        {
+            if (_trayIcon != null)
+            {
+                _trayIcon.Icon = GetTrayIcon();
+            }
+        }
+
+        private void Close_Click(object sender, RoutedEventArgs e) => ExitApplication();
 
         private void CheckFullscreen(object sender, EventArgs e)
         {
@@ -168,7 +282,7 @@ namespace CinemaMode
                 if (foregroundWnd == IntPtr.Zero) return;
 
                 if (!GetWindowRect(foregroundWnd, out RECT rect)) return;
-                
+
                 var screen = Screen.FromHandle(foregroundWnd);
                 if (screen == null) return;
 
@@ -261,7 +375,7 @@ namespace CinemaMode
             if (!_isDisconnected || _savedPaths == null) return;
 
             SetDisplayConfig((uint)_savedPaths.Length, _savedPaths, (uint)_savedModes.Length, _savedModes, SDC_APPLY | SDC_USE_SUPPLIED_CONFIG | SDC_ALLOW_CHANGES);
-            
+
             _isDisconnected = false;
             _savedPaths = null;
             _savedModes = null;

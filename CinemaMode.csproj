@@ -11,4 +11,7 @@
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
+  <ItemGroup>
+    <Content Include="cinema.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
