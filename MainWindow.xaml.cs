@@ -20,6 +20,15 @@ namespace CinemaMode
         private ContextMenuStrip _trayMenu;
         private bool _isInitializing = true;
         private DateTime _lastActionTime = DateTime.MinValue;
+        private List<Window> _dimmingWindows = new List<Window>();
+
+        [DllImport("user32.dll")]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+        [DllImport("user32.dll")]
+        private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+        private const int GWL_EXSTYLE = -20;
+        private const int WS_EX_TRANSPARENT = 0x00000020;
+        private const int WS_EX_LAYERED = 0x00080000;
 
         // P/Invoke for Display Configuration
         [DllImport("user32.dll")]
@@ -178,6 +187,13 @@ namespace CinemaMode
             // Setup tray icon
             SetupTrayIcon();
 
+            // Set window icon in the UI
+            using (var icon = GetTrayIcon())
+            {
+                AppIconImg.Source = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
+                    icon.Handle, Int32Rect.Empty, System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+            }
+
             LoadSettings();
         }
 
@@ -197,6 +213,8 @@ namespace CinemaMode
                 {
                     StartMinimizedCheck.IsChecked = (int)(key?.GetValue("StartMinimized", 0) ?? 0) == 1;
                     ModeToggle.IsChecked = (int)(key?.GetValue("IsEnabled", 0) ?? 0) == 1;
+                    DimModeCheck.IsChecked = (int)(key?.GetValue("DimMode", 0) ?? 0) == 1;
+                    BrightnessSlider.Value = (int)(key?.GetValue("Brightness", 0) ?? 0);
                 }
             }
             finally { _isInitializing = false; }
@@ -220,6 +238,15 @@ namespace CinemaMode
             {
                 key.SetValue("StartMinimized", StartMinimizedCheck.IsChecked == true ? 1 : 0);
                 key.SetValue("IsEnabled", ModeToggle.IsChecked == true ? 1 : 0);
+                key.SetValue("DimMode", DimModeCheck.IsChecked == true ? 1 : 0);
+                key.SetValue("Brightness", (int)BrightnessSlider.Value);
+            }
+
+            // Update active dimming windows in real-time if they exist
+            if (_isDisconnected && _dimmingWindows.Count > 0)
+            {
+                foreach (var w in _dimmingWindows)
+                    w.Opacity = (100 - BrightnessSlider.Value) / 100.0;
             }
         }
 
@@ -299,9 +326,10 @@ namespace CinemaMode
 
         private void RestoreWindow()
         {
+            if (!this.IsVisible) this.Show();
             this.Visibility = Visibility.Visible;
-            this.WindowState = WindowState.Normal;
             this.ShowInTaskbar = true;
+            this.WindowState = WindowState.Normal;
             this.Topmost = true;
             this.Activate();
             this.Focus();
@@ -407,6 +435,14 @@ namespace CinemaMode
                 mi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
                 if (!GetMonitorInfo(hMonitor, ref mi)) return;
 
+                if (DimModeCheck.IsChecked == true)
+                {
+                    DimOtherScreens(mi.szDevice);
+                    _isDisconnected = true;
+                    _lastActionTime = DateTime.Now;
+                    return;
+                }
+
                 uint numPath, numMode;
                 if (GetDisplayConfigBufferSizes(QDC_ALL_PATHS, out numPath, out numMode) != 0) return;
 
@@ -507,12 +543,48 @@ namespace CinemaMode
             }
         }
 
+        private void DimOtherScreens(string activeDeviceName)
+        {
+            foreach (var screen in Screen.AllScreens)
+            {
+                if (string.Equals(screen.DeviceName, activeDeviceName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                Window dimWindow = new Window
+                {
+                    WindowStyle = WindowStyle.None,
+                    AllowsTransparency = true,
+                    Background = System.Windows.Media.Brushes.Black,
+                    Opacity = (100 - BrightnessSlider.Value) / 100.0,
+                    Topmost = true,
+                    ShowInTaskbar = false,
+                    WindowStartupLocation = WindowStartupLocation.Manual
+                };
+
+                dimWindow.Show();
+                _dimmingWindows.Add(dimWindow);
+
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(dimWindow).Handle;
+                int extendedStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+                SetWindowLong(hwnd, GWL_EXSTYLE, extendedStyle | WS_EX_TRANSPARENT | WS_EX_LAYERED);
+
+                SetWindowPos(hwnd, new IntPtr(-1), screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height, 0x0040);
+            }
+        }
+
         private void RestoreScreens()
         {
-            if (!_isDisconnected || _savedPaths == null) return;
+            if (!_isDisconnected) return;
             if (DateTime.Now - _lastActionTime < TimeSpan.FromSeconds(1)) return;
 
-            SetDisplayConfig((uint)_savedPaths.Length, _savedPaths, (uint)_savedModes.Length, _savedModes, SDC_APPLY | SDC_USE_SUPPLIED_CONFIG | SDC_ALLOW_CHANGES);
+            foreach (var w in _dimmingWindows) w.Close();
+            _dimmingWindows.Clear();
+
+            if (_savedPaths != null)
+            {
+                SetDisplayConfig((uint)_savedPaths.Length, _savedPaths, (uint)_savedModes.Length, _savedModes, SDC_APPLY | SDC_USE_SUPPLIED_CONFIG | SDC_ALLOW_CHANGES);
+                _savedPaths = null;
+                _savedModes = null;
+            }
 
             _isDisconnected = false;
             _lastActionTime = DateTime.Now;

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Cinema Mode"
         Height="250"
-        Width="220"
+        Width="250"
         Background="#1A1A1A"
         Foreground="#FFF"
         WindowStartupLocation="CenterScreen"
@@ -71,19 +71,38 @@
     <Border Background="#1A1A1A"
             CornerRadius="15"
             BorderBrush="#333"
-            BorderThickness="1"
-            ToolTip="Minimize to tray.">
+            BorderThickness="1">
         <Grid>
             <!-- Title Bar -->
             <Grid Height="50"
                   VerticalAlignment="Top"
                   Background="#252525">
-                <TextBlock Text="Cinema Mode"
-                           VerticalAlignment="Center"
-                           Margin="20,0"
-                           FontSize="16"
-                           FontWeight="Bold"
-                           Foreground="White"/>
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="15,0">
+                    <Image x:Name="AppIconImg"
+                           Width="20"
+                           Height="20"
+                           Margin="0,0,10,0"/>
+                    <TextBlock Text="Cinema Mode"
+                               FontSize="16"
+                               FontWeight="Bold">
+                        <TextBlock.Foreground>
+                            <LinearGradientBrush StartPoint="0,0"
+                                                 EndPoint="1,0">
+                                <GradientStop Color="#9370DB"
+                                              Offset="0.0"/>
+                                <!-- Light Purple -->
+                                <GradientStop Color="#6A5ACD"
+                                              Offset="0.5"/>
+                                <!-- Darker Purple -->
+                                <GradientStop Color="#4169E1"
+                                              Offset="1.0"/>
+                                <!-- Blue -->
+                            </LinearGradientBrush>
+                        </TextBlock.Foreground>
+                    </TextBlock>
+                </StackPanel>
 
                 <!-- Minimize Button -->
                 <Button Content="−"
@@ -117,29 +136,60 @@
             </Grid>
 
             <!-- Content Area -->
-            <StackPanel VerticalAlignment="Center"
+            <StackPanel VerticalAlignment="Top"
                         HorizontalAlignment="Center"
-                        Margin="0,25,0,0">
+                        Margin="0,60,0,0"
+                        Width="170">
                 <ToggleButton x:Name="ModeToggle"
-                              Height="50"
+                              Height="30"
+                              Width="170"
+                              Margin="0,0,0,20"
                               Checked="ModeToggle_Checked"
                               Unchecked="ModeToggle_Unchecked"
                               Style="{StaticResource StatusButtonStyle}"
-                              ToolTip="Toggle Cinema Mode on/off"/>
+                              ToolTip="Toggle Cinema Mode on/off"
+                              HorizontalAlignment="Center"/>
 
                 <CheckBox x:Name="StartMinimizedCheck"
                           Content="Start Minimized"
                           Foreground="#AAA"
-                          Margin="0,20,0,5"
+                          Margin="0,0,0,8"
+                          FontSize="12"
                           Checked="SettingChanged"
-                          Unchecked="SettingChanged"/>
+                          Unchecked="SettingChanged"
+                          ToolTip="The application will start hidden in the system tray."/>
 
                 <CheckBox x:Name="StartWithWindowsCheck"
                           Content="Start with Windows"
                           Foreground="#AAA"
-                          Margin="0,5,0,0"
+                          Margin="0,0,0,8"
+                          FontSize="12"
                           Checked="SettingChanged"
-                          Unchecked="SettingChanged"/>
+                          Unchecked="SettingChanged"
+                          ToolTip="Automatically launch the app when you log into Windows."/>
+
+                <CheckBox x:Name="DimModeCheck"
+                          Content="Just dim other screens"
+                          Foreground="#AAA"
+                          Margin="0,0,0,15"
+                          FontSize="12"
+                          Checked="SettingChanged"
+                          Unchecked="SettingChanged"
+                          ToolTip="Uses a dark overlay on other screens instead of disabling them via Windows settings."/>
+
+                <TextBlock Text="{Binding Value, ElementName=BrightnessSlider, StringFormat=Brightness: {0:0}%}"
+                           Foreground="#888"
+                           FontSize="12"
+                           Margin="0,2,0,0"
+                           HorizontalAlignment="Center"/>
+                <Slider x:Name="BrightnessSlider"
+                        Width="170"
+                        Minimum="0"
+                        Maximum="100"
+                        Value="0"
+                        IsEnabled="{Binding IsChecked, ElementName=DimModeCheck}"
+                        ValueChanged="SettingChanged"
+                        ToolTip="Adjust how dark the other screens become."/>
             </StackPanel>
         </Grid>
     </Border>
