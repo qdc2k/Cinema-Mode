@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Threading;
 using System.Windows.Forms;
 using System.Drawing;
+using Microsoft.Win32;
 
 namespace CinemaMode
 {
@@ -16,6 +18,7 @@ namespace CinemaMode
         private bool _isDisconnected = false;
         private NotifyIcon _trayIcon;
         private ContextMenuStrip _trayMenu;
+        private bool _isInitializing = true;
 
         // P/Invoke for Display Configuration
         [DllImport("user32.dll")]
@@ -121,6 +124,8 @@ namespace CinemaMode
         private const uint SDC_ALLOW_CHANGES = 0x00000400;
         private const uint SDC_USE_SUPPLIED_CONFIG = 0x00000020;
         private const uint DISPLAYCONFIG_PATH_ACTIVE = 0x00000001;
+        private const uint DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE = 1;
+        private const uint DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE = 3;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct MONITORINFOEX
@@ -138,6 +143,9 @@ namespace CinemaMode
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
@@ -161,6 +169,58 @@ namespace CinemaMode
 
             // Setup tray icon
             SetupTrayIcon();
+
+            LoadSettings();
+        }
+
+        private void LoadSettings()
+        {
+            _isInitializing = true;
+            try
+            {
+                // Load "Start with Windows" from Registry
+                using (var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false))
+                {
+                    StartWithWindowsCheck.IsChecked = key?.GetValue("CinemaMode") != null;
+                }
+
+                // Load "Start Minimized" and Mode state from Registry
+                using (var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\CinemaMode", false))
+                {
+                    StartMinimizedCheck.IsChecked = (int)(key?.GetValue("StartMinimized", 0) ?? 0) == 1;
+                    ModeToggle.IsChecked = (int)(key?.GetValue("IsEnabled", 0) ?? 0) == 1;
+                }
+            }
+            finally { _isInitializing = false; }
+        }
+
+        private void SettingChanged(object sender, RoutedEventArgs e)
+        {
+            if (_isInitializing) return;
+
+            // Save "Start with Windows"
+            using (var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+            {
+                if (StartWithWindowsCheck.IsChecked == true)
+                    key?.SetValue("CinemaMode", $"\"{Environment.ProcessPath}\"");
+                else
+                    key?.DeleteValue("CinemaMode", false);
+            }
+
+            // Save "Start Minimized" and Mode state
+            using (var key = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\CinemaMode"))
+            {
+                key.SetValue("StartMinimized", StartMinimizedCheck.IsChecked == true ? 1 : 0);
+                key.SetValue("IsEnabled", ModeToggle.IsChecked == true ? 1 : 0);
+            }
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (StartMinimizedCheck.IsChecked == true)
+            {
+                this.WindowState = WindowState.Minimized;
+            }
         }
 
         private void SetupTrayIcon()
@@ -194,10 +254,19 @@ namespace CinemaMode
         {
             try
             {
-                // Try to load the icon file from the same directory as the executable
-                string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-                string iconPath = System.IO.Path.Combine(appDirectory, "CinemaMode.ico");
+                // 1. Try to extract the icon from the executable itself (Portable support)
+                // This uses the icon embedded during build via -p:ApplicationIcon
+                string exePath = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(exePath) && System.IO.File.Exists(exePath))
+                {
+                    using (var exeIcon = System.Drawing.Icon.ExtractAssociatedIcon(exePath))
+                    {
+                        if (exeIcon != null) return (System.Drawing.Icon)exeIcon.Clone();
+                    }
+                }
 
+                // 2. Fallback: Try to load the icon file from the same directory
+                string iconPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CinemaMode.ico");
                 if (System.IO.File.Exists(iconPath))
                 {
                     return new System.Drawing.Icon(iconPath);
@@ -259,6 +328,7 @@ namespace CinemaMode
         {
             _isModeActive = true;
             UpdateTrayIcon();
+            SettingChanged(sender, e);
         }
 
         private void ModeToggle_Unchecked(object sender, RoutedEventArgs e)
@@ -266,6 +336,7 @@ namespace CinemaMode
             _isModeActive = false;
             RestoreScreens();
             UpdateTrayIcon();
+            SettingChanged(sender, e);
         }
 
         private void UpdateTrayIcon()
@@ -286,6 +357,16 @@ namespace CinemaMode
 
                 IntPtr foregroundWnd = GetForegroundWindow();
                 if (foregroundWnd == IntPtr.Zero) return;
+
+                // Ignore Windows Desktop and Taskbar to prevent accidental triggers
+                StringBuilder className = new StringBuilder(256);
+                GetClassName(foregroundWnd, className, className.Capacity);
+                string cn = className.ToString();
+                if (cn == "Progman" || cn == "WorkerW" || cn == "Shell_TrayWnd")
+                {
+                    RestoreScreens();
+                    return;
+                }
 
                 if (!GetWindowRect(foregroundWnd, out RECT rect)) return;
 
@@ -350,17 +431,34 @@ namespace CinemaMode
                 if (activePaths.Count > 0 && activePaths.Count < currentActiveCount)
                 {
                     // IMPORTANT: For a single-monitor setup, the active monitor MUST be at coordinates (0,0).
-                    // We find the source mode for our target path and force its position to the origin.
+                    // We find the source or desktop mode for our target path and force its position to the origin
+                    // to prevent "clipping" or "cutting" on non-primary monitors.
                     for (int m = 0; m < modeArray.Length; m++)
                     {
-                        if (modeArray[m].infoType == 1 && // Source Mode
+                        if ((modeArray[m].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE ||
+                             modeArray[m].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE) &&
                             modeArray[m].adapterId.LowPart == activePaths[0].sourceInfo.adapterId.LowPart &&
                             modeArray[m].adapterId.HighPart == activePaths[0].sourceInfo.adapterId.HighPart &&
                             modeArray[m].id == activePaths[0].sourceInfo.id)
                         {
-                            modeArray[m].union.sourceMode.position.x = 0;
-                            modeArray[m].union.sourceMode.position.y = 0;
-                            break;
+                            if (modeArray[m].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE)
+                            {
+                                modeArray[m].union.sourceMode.position.x = 0;
+                                modeArray[m].union.sourceMode.position.y = 0;
+                            }
+                            else // DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE
+                            {
+                                int width = modeArray[m].union.desktopImageInfo.DesktopImageRegion.right - modeArray[m].union.desktopImageInfo.DesktopImageRegion.left;
+                                int height = modeArray[m].union.desktopImageInfo.DesktopImageRegion.bottom - modeArray[m].union.desktopImageInfo.DesktopImageRegion.top;
+
+                                modeArray[m].union.desktopImageInfo.DesktopImageRegion.left = 0;
+                                modeArray[m].union.desktopImageInfo.DesktopImageRegion.top = 0;
+                                modeArray[m].union.desktopImageInfo.DesktopImageRegion.right = width;
+                                modeArray[m].union.desktopImageInfo.DesktopImageRegion.bottom = height;
+
+                                modeArray[m].union.desktopImageInfo.PathSourceSize.x = width;
+                                modeArray[m].union.desktopImageInfo.PathSourceSize.y = height;
+                            }
                         }
                     }
 

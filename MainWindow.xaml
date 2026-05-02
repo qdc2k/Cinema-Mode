@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Cinema Mode"
-        Height="180"
+        Height="250"
         Width="220"
         Background="#1A1A1A"
         Foreground="#FFF"
@@ -10,7 +10,8 @@
         ResizeMode="NoResize"
         WindowStyle="None"
         AllowsTransparency="True"
-        StateChanged="Window_StateChanged">
+        StateChanged="Window_StateChanged"
+        Loaded="Window_Loaded">
 
     <Window.Resources>
         <Style x:Key="StatusButtonStyle"
@@ -125,6 +126,20 @@
                               Unchecked="ModeToggle_Unchecked"
                               Style="{StaticResource StatusButtonStyle}"
                               ToolTip="Toggle Cinema Mode on/off"/>
+
+                <CheckBox x:Name="StartMinimizedCheck"
+                          Content="Start Minimized"
+                          Foreground="#AAA"
+                          Margin="0,20,0,5"
+                          Checked="SettingChanged"
+                          Unchecked="SettingChanged"/>
+
+                <CheckBox x:Name="StartWithWindowsCheck"
+                          Content="Start with Windows"
+                          Foreground="#AAA"
+                          Margin="0,5,0,0"
+                          Checked="SettingChanged"
+                          Unchecked="SettingChanged"/>
             </StackPanel>
         </Grid>
     </Border>
