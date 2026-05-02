@@ -5,7 +5,7 @@ This app allows to automatically disable other screens when watching a video. Th
 
 ## Prerequisites
 - **Windows OS** (required for WPF and Win32 API calls)
-- **[.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)**
+- **[.NET 8.0 SDK](https://dotnet.microsoft.com/en-us/download) or higher**
 
 ## Building
 To build the project and generate a portable single-file executable, run the provided batch file:
