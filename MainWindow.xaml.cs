@@ -167,6 +167,10 @@ namespace CinemaMode
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        private const int SW_RESTORE = 9;
+
         [DllImport("user32.dll", SetLastError = true)]
         static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
@@ -326,17 +330,20 @@ namespace CinemaMode
 
         private void RestoreWindow()
         {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
             if (!this.IsVisible) this.Show();
+            if (this.WindowState == WindowState.Minimized) ShowWindow(hwnd, SW_RESTORE);
+
             this.Visibility = Visibility.Visible;
             this.ShowInTaskbar = true;
             this.WindowState = WindowState.Normal;
-            this.Topmost = true;
-            this.Activate();
-            this.Focus();
 
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            this.Topmost = true; // Bring to front forcefully
+            this.Activate();
             SetForegroundWindow(hwnd);
             this.Topmost = false;
+            this.Focus();
         }
 
         private void ExitApplication()

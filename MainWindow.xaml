@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Cinema Mode"
         Height="250"
-        Width="250"
+        Width="230"
         Background="#1A1A1A"
         Foreground="#FFF"
         WindowStartupLocation="CenterScreen"
@@ -66,6 +66,49 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Custom Slider Style for gradient track -->
+        <Style TargetType="{x:Type Slider}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Slider}">
+                        <Grid>
+                            <Border x:Name="PART_TrackBackground"
+                                    Height="4"
+                                    CornerRadius="2"
+                                    VerticalAlignment="Center">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0"
+                                                         EndPoint="1,0">
+                                        <GradientStop Color="#333"
+                                                      Offset="0.0"/>
+                                        <!-- Dark on left -->
+                                        <GradientStop Color="#BBB"
+                                                      Offset="1.0"/>
+                                        <!-- Bright on right -->
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <Track x:Name="PART_Track">
+                                <Track.Thumb>
+                                    <Thumb x:Name="Thumb"
+                                           Width="14"
+                                           Height="14">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="{x:Type Thumb}">
+                                                <Ellipse Fill="White"
+                                                         Stroke="#333"
+                                                         StrokeThickness="1"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Border Background="#1A1A1A"
@@ -74,18 +117,18 @@
             BorderThickness="1">
         <Grid>
             <!-- Title Bar -->
-            <Grid Height="50"
+            <Grid Height="45"
                   VerticalAlignment="Top"
                   Background="#252525">
                 <StackPanel Orientation="Horizontal"
                             VerticalAlignment="Center"
-                            Margin="15,0">
+                            Margin="12,0">
                     <Image x:Name="AppIconImg"
                            Width="20"
                            Height="20"
-                           Margin="0,0,10,0"/>
+                           Margin="0,0,8,0"/>
                     <TextBlock Text="Cinema Mode"
-                               FontSize="16"
+                               FontSize="15"
                                FontWeight="Bold">
                         <TextBlock.Foreground>
                             <LinearGradientBrush StartPoint="0,0"
@@ -111,7 +154,7 @@
                         Background="Transparent"
                         Foreground="#888"
                         BorderThickness="0"
-                        Margin="0,0,50,0"
+                        Margin="0,0,44,0"
                         Width="30"
                         Height="30"
                         FontSize="18"
@@ -126,7 +169,7 @@
                         Background="Transparent"
                         Foreground="#888"
                         BorderThickness="0"
-                        Margin="0,0,15,0"
+                        Margin="0,0,10,0"
                         Width="30"
                         Height="30"
                         FontSize="16"
@@ -138,11 +181,11 @@
             <!-- Content Area -->
             <StackPanel VerticalAlignment="Top"
                         HorizontalAlignment="Center"
-                        Margin="0,60,0,0"
-                        Width="170">
+                        Margin="0,65,0,0"
+                        Width="180">
                 <ToggleButton x:Name="ModeToggle"
                               Height="30"
-                              Width="170"
+                              Width="180"
                               Margin="0,0,0,20"
                               Checked="ModeToggle_Checked"
                               Unchecked="ModeToggle_Unchecked"
@@ -152,8 +195,8 @@
 
                 <CheckBox x:Name="StartMinimizedCheck"
                           Content="Start Minimized"
-                          Foreground="#AAA"
-                          Margin="0,0,0,8"
+                          Foreground="White"
+                          Margin="0,0,0,10"
                           FontSize="12"
                           Checked="SettingChanged"
                           Unchecked="SettingChanged"
@@ -161,8 +204,8 @@
 
                 <CheckBox x:Name="StartWithWindowsCheck"
                           Content="Start with Windows"
-                          Foreground="#AAA"
-                          Margin="0,0,0,8"
+                          Foreground="White"
+                          Margin="0,0,0,10"
                           FontSize="12"
                           Checked="SettingChanged"
                           Unchecked="SettingChanged"
@@ -170,23 +213,23 @@
 
                 <CheckBox x:Name="DimModeCheck"
                           Content="Just dim other screens"
-                          Foreground="#AAA"
-                          Margin="0,0,0,15"
+                          Foreground="White"
+                          Margin="0,0,0,18"
                           FontSize="12"
                           Checked="SettingChanged"
                           Unchecked="SettingChanged"
                           ToolTip="Uses a dark overlay on other screens instead of disabling them via Windows settings."/>
 
                 <TextBlock Text="{Binding Value, ElementName=BrightnessSlider, StringFormat=Brightness: {0:0}%}"
-                           Foreground="#888"
+                           Foreground="White"
                            FontSize="12"
-                           Margin="0,2,0,0"
+                           Margin="0,0,0,2"
                            HorizontalAlignment="Center"/>
                 <Slider x:Name="BrightnessSlider"
-                        Width="170"
+                        Width="180"
                         Minimum="0"
                         Maximum="100"
-                        Value="0"
+                        Value="10"
                         IsEnabled="{Binding IsChecked, ElementName=DimModeCheck}"
                         ValueChanged="SettingChanged"
                         ToolTip="Adjust how dark the other screens become."/>
