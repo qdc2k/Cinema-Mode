@@ -21,6 +21,7 @@ namespace CinemaMode
         private bool _isInitializing = true;
         private DateTime _lastActionTime = DateTime.MinValue;
         private List<Window> _dimmingWindows = new List<Window>();
+        private HashSet<string> _exceptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         [DllImport("user32.dll")]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
@@ -59,6 +60,9 @@ namespace CinemaMode
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         private const uint DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 1;
 
@@ -219,6 +223,10 @@ namespace CinemaMode
                     ModeToggle.IsChecked = (int)(key?.GetValue("IsEnabled", 0) ?? 0) == 1;
                     DimModeCheck.IsChecked = (int)(key?.GetValue("DimMode", 0) ?? 0) == 1;
                     BrightnessSlider.Value = (int)(key?.GetValue("Brightness", 0) ?? 0);
+
+                    string exc = key?.GetValue("Exceptions", "") as string;
+                    if (!string.IsNullOrEmpty(exc))
+                        foreach (var s in exc.Split('|')) if (!string.IsNullOrWhiteSpace(s)) _exceptions.Add(s.Trim());
                 }
             }
             finally { _isInitializing = false; }
@@ -244,6 +252,7 @@ namespace CinemaMode
                 key.SetValue("IsEnabled", ModeToggle.IsChecked == true ? 1 : 0);
                 key.SetValue("DimMode", DimModeCheck.IsChecked == true ? 1 : 0);
                 key.SetValue("Brightness", (int)BrightnessSlider.Value);
+                key.SetValue("Exceptions", string.Join("|", _exceptions));
             }
 
             // Update active dimming windows in real-time if they exist
@@ -367,6 +376,93 @@ namespace CinemaMode
             this.WindowState = WindowState.Minimized;
         }
 
+        private void Exceptions_Click(object sender, RoutedEventArgs e)
+        {
+            Window win = new Window { Title = "Exceptions", Width = 260, Height = 410, Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(26, 26, 26)), Foreground = System.Windows.Media.Brushes.White, Owner = this, WindowStartupLocation = WindowStartupLocation.Manual, Left = this.Left + this.Width + 5, Top = this.Top, ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.None, AllowsTransparency = true };
+            win.MouseLeftButtonDown += (s, ev) => { if (ev.LeftButton == System.Windows.Input.MouseButtonState.Pressed) win.DragMove(); };
+
+            var grid = new System.Windows.Controls.Grid();
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(45) });
+            grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            // Custom Title Bar
+            var titleBar = new System.Windows.Controls.Grid { Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(37, 37, 37)) };
+            var titleText = new System.Windows.Controls.TextBlock { Text = "Exceptions", FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+            var brush = new System.Windows.Media.LinearGradientBrush { StartPoint = new System.Windows.Point(0, 0), EndPoint = new System.Windows.Point(1, 0) };
+            brush.GradientStops.Add(new System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(147, 112, 219), 0.0));
+            brush.GradientStops.Add(new System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(106, 90, 205), 0.5));
+            brush.GradientStops.Add(new System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(65, 105, 225), 1.0));
+            titleText.Foreground = brush;
+            titleBar.Children.Add(titleText);
+
+            var closeBtn = new System.Windows.Controls.Button { Content = "✕", Width = 30, Height = 30, Background = System.Windows.Media.Brushes.Transparent, Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(136, 136, 136)), BorderThickness = new Thickness(0), HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 0, 10, 0), Cursor = System.Windows.Input.Cursors.Hand };
+            closeBtn.Click += (s, ev) => win.Close();
+            titleBar.Children.Add(closeBtn);
+            System.Windows.Controls.Grid.SetRow(titleBar, 0); grid.Children.Add(titleBar);
+
+            var contentGrid = new System.Windows.Controls.Grid { Margin = new Thickness(15) };
+            System.Windows.Controls.Grid.SetRow(contentGrid, 1);
+            contentGrid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
+            contentGrid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            contentGrid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
+            contentGrid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
+
+            contentGrid.Children.Add(new System.Windows.Controls.TextBlock { Text = "Ignored Processes:", Foreground = System.Windows.Media.Brushes.White, FontSize = 12, Margin = new Thickness(0, 0, 0, 5) });
+            var list = new System.Windows.Controls.ListBox { Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(35, 35, 35)), Foreground = System.Windows.Media.Brushes.White, BorderThickness = new Thickness(0), Margin = new Thickness(0, 0, 0, 10), FontSize = 13 };
+            foreach (var ex in _exceptions) list.Items.Add(ex);
+            System.Windows.Controls.Grid.SetRow(list, 1); contentGrid.Children.Add(list);
+
+            // Manual Entry Grid
+            var manualGrid = new System.Windows.Controls.Grid { Margin = new Thickness(0, 0, 0, 15) };
+            manualGrid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            manualGrid.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = GridLength.Auto });
+            var manualInput = new System.Windows.Controls.TextBox { Height = 25, Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 45, 45)), Foreground = System.Windows.Media.Brushes.White, BorderThickness = new Thickness(1), BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(60, 60, 60)), VerticalContentAlignment = System.Windows.VerticalAlignment.Center, Padding = new Thickness(5, 0, 5, 0) };
+            var manualAddBtn = new System.Windows.Controls.Button { Content = "Add", Width = 40, Height = 25, Margin = new Thickness(5, 0, 0, 0), Foreground = System.Windows.Media.Brushes.White, Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 45, 45)), BorderThickness = new Thickness(0), Cursor = System.Windows.Input.Cursors.Hand, FontSize = 11 };
+            manualAddBtn.Click += (s, ev) => { if (!string.IsNullOrWhiteSpace(manualInput.Text)) { string n = manualInput.Text.Trim(); if (_exceptions.Add(n)) { list.Items.Add(n); SettingChanged(null, null); } manualInput.Clear(); } };
+            System.Windows.Controls.Grid.SetColumn(manualInput, 0); manualGrid.Children.Add(manualInput);
+            System.Windows.Controls.Grid.SetColumn(manualAddBtn, 1); manualGrid.Children.Add(manualAddBtn);
+            System.Windows.Controls.Grid.SetRow(manualGrid, 2); contentGrid.Children.Add(manualGrid);
+
+            var btnStack = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
+            var selectBtn = new System.Windows.Controls.Button { Content = "Select Running...", Width = 110, Height = 30, Margin = new Thickness(0, 0, 10, 0), Foreground = System.Windows.Media.Brushes.White, Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 45, 45)), BorderThickness = new Thickness(0), Cursor = System.Windows.Input.Cursors.Hand };
+            selectBtn.Click += (s, ev) =>
+            {
+                Window pWin = new Window { Title = "Select Process", Width = 260, Height = 400, Background = win.Background, Foreground = win.Foreground, Owner = win, WindowStartupLocation = WindowStartupLocation.Manual, Left = win.Left + win.Width + 5, Top = win.Top, WindowStyle = WindowStyle.None, AllowsTransparency = true };
+                pWin.MouseLeftButtonDown += (s2, ev2) => { if (ev2.LeftButton == System.Windows.Input.MouseButtonState.Pressed) pWin.DragMove(); };
+                var pGrid = new System.Windows.Controls.Grid();
+                pGrid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(45) });
+                pGrid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                var pTitleBar = new System.Windows.Controls.Grid { Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(37, 37, 37)) };
+                var pTitleText = new System.Windows.Controls.TextBlock { Text = "Select Process", FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+                var pBrush = new System.Windows.Media.LinearGradientBrush { StartPoint = new System.Windows.Point(0, 0), EndPoint = new System.Windows.Point(1, 0) };
+                pBrush.GradientStops.Add(new System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(147, 112, 219), 0.0));
+                pBrush.GradientStops.Add(new System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(106, 90, 205), 0.5));
+                pBrush.GradientStops.Add(new System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb(65, 105, 225), 1.0));
+                pTitleText.Foreground = pBrush;
+                pTitleBar.Children.Add(pTitleText);
+                var pCloseBtn = new System.Windows.Controls.Button { Content = "✕", Width = 30, Height = 30, Background = System.Windows.Media.Brushes.Transparent, Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(136, 136, 136)), BorderThickness = new Thickness(0), HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 0, 10, 0), Cursor = System.Windows.Input.Cursors.Hand };
+                pCloseBtn.Click += (s2, ev2) => pWin.Close();
+                pTitleBar.Children.Add(pCloseBtn);
+                System.Windows.Controls.Grid.SetRow(pTitleBar, 0); pGrid.Children.Add(pTitleBar);
+                var pList = new System.Windows.Controls.ListBox { Background = list.Background, Foreground = list.Foreground, BorderThickness = new Thickness(0), Margin = new Thickness(15), FontSize = 13 };
+                var names = new List<string>();
+                foreach (var p in System.Diagnostics.Process.GetProcesses()) try { if (!string.IsNullOrEmpty(p.MainWindowTitle) && !names.Contains(p.ProcessName)) names.Add(p.ProcessName); } catch { }
+                names.Sort(); foreach (var n in names) pList.Items.Add(n);
+                pList.MouseDoubleClick += (s2, ev2) => { if (pList.SelectedItem != null) { string n = pList.SelectedItem.ToString(); if (_exceptions.Add(n)) { list.Items.Add(n); SettingChanged(null, null); } pWin.Close(); } };
+                System.Windows.Controls.Grid.SetRow(pList, 1); pGrid.Children.Add(pList);
+                pWin.Content = pGrid; pWin.ShowDialog();
+            };
+
+            var remBtn = new System.Windows.Controls.Button { Content = "Remove", Width = 90, Height = 30, Foreground = System.Windows.Media.Brushes.White, Background = selectBtn.Background, BorderThickness = new Thickness(0), Cursor = System.Windows.Input.Cursors.Hand };
+            remBtn.Click += (s, ev) => { if (list.SelectedItem != null) { _exceptions.Remove(list.SelectedItem.ToString()); list.Items.Remove(list.SelectedItem); SettingChanged(null, null); } };
+            btnStack.Children.Add(selectBtn); btnStack.Children.Add(remBtn);
+            System.Windows.Controls.Grid.SetRow(btnStack, 3); contentGrid.Children.Add(btnStack);
+
+            grid.Children.Add(contentGrid);
+            win.Content = grid;
+            win.ShowDialog();
+        }
+
         private void ModeToggle_Checked(object sender, RoutedEventArgs e)
         {
             _isModeActive = true;
@@ -415,6 +511,16 @@ namespace CinemaMode
                 }
 
                 if (!GetWindowRect(foregroundWnd, out RECT rect)) return;
+
+                // Check exceptions list by process name
+                uint pid;
+                GetWindowThreadProcessId(foregroundWnd, out pid);
+                try
+                {
+                    using (var proc = System.Diagnostics.Process.GetProcessById((int)pid))
+                        if (_exceptions.Contains(proc.ProcessName)) { RestoreScreens(); return; }
+                }
+                catch { }
 
                 var screen = Screen.FromHandle(foregroundWnd);
                 if (screen == null) return;
