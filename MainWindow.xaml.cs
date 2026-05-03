@@ -25,7 +25,7 @@ namespace CinemaMode
         private static readonly HashSet<string> _builtinExceptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "SnagitCaptureUX", "Snagit", "SnagIt32", "SnagItEditor", "SnagitCapture",
-            "Greenshot", "ShareX", "Lightshot", "PicPick", "Flameshot",
+            "Greenshot", "ShareX", "Lightshot", "PicPick", "Flameshot", "explorer",
             "ScreenClippingHost", "SnippingTool", "SnippingToolWPF"
         };
         private HashSet<string> _exceptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
