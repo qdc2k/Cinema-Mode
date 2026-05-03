@@ -21,6 +21,13 @@ namespace CinemaMode
         private bool _isInitializing = true;
         private DateTime _lastActionTime = DateTime.MinValue;
         private List<Window> _dimmingWindows = new List<Window>();
+
+        private static readonly HashSet<string> _builtinExceptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "SnagitCaptureUX", "Snagit", "SnagIt32", "SnagItEditor", "SnagitCapture",
+            "Greenshot", "ShareX", "Lightshot", "PicPick", "Flameshot",
+            "ScreenClippingHost", "SnippingTool", "SnippingToolWPF"
+        };
         private HashSet<string> _exceptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         [DllImport("user32.dll")]
@@ -518,7 +525,8 @@ namespace CinemaMode
                 try
                 {
                     using (var proc = System.Diagnostics.Process.GetProcessById((int)pid))
-                        if (_exceptions.Contains(proc.ProcessName)) { RestoreScreens(); return; }
+                        if (_exceptions.Contains(proc.ProcessName) || _builtinExceptions.Contains(proc.ProcessName))
+                        { RestoreScreens(); return; }
                 }
                 catch { }
 
